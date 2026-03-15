@@ -8,26 +8,39 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Caricamento Firebase come Modulo Esterno con gestione errori -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyAuiAeIkQx96OiaTaOMD0sGTA-siutaXMM",
-            authDomain: "processione-venerdi-santo.firebaseapp.com",
-            projectId: "processione-venerdi-santo",
-            storageBucket: "processione-venerdi-santo.firebasestorage.app",
-            messagingSenderId: "236869792869",
-            appId: "1:236869792869:web:22fe40a476af9d3530c28c"
-        };
+        try {
+            const firebaseConfig = {
+                apiKey: "AIzaSyAuiAeIkQx96OiaTaOMD0sGTA-siutaXMM",
+                authDomain: "processione-venerdi-santo.firebaseapp.com",
+                projectId: "processione-venerdi-santo",
+                storageBucket: "processione-venerdi-santo.firebasestorage.app",
+                messagingSenderId: "236869792869",
+                appId: "1:236869792869:web:22fe40a476af9d3530c28c"
+            };
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = "venerdi-santo-2026";
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            const db = getFirestore(app);
+            const appId = "venerdi-santo-2026";
 
-        window.fb = { auth, db, appId, collection, addDoc, onSnapshot, doc, setDoc, updateDoc, arrayUnion, signInAnonymously, onAuthStateChanged };
+            // Esponiamo le funzioni globalmente per Babel
+            window.fb = { 
+                auth, db, appId, 
+                collection, addDoc, onSnapshot, doc, setDoc, updateDoc, arrayUnion, 
+                signInAnonymously, onAuthStateChanged,
+                isLoaded: true
+            };
+        } catch (error) {
+            console.error("Errore inizializzazione modulo Firebase:", error);
+            window.fbError = error.message;
+        }
     </script>
 
     <style>
@@ -43,7 +56,6 @@
 
     <script type="text/babel">
         const { useState, useEffect } = React;
-        const { fb } = window;
 
         const Countdown = ({ targetDate }) => {
             const [timeLeft, setTimeLeft] = useState({ giorni: 0, ore: 0, minuti: 0, secondi: 0 });
@@ -91,37 +103,83 @@
             const [newsText, setNewsText] = useState('');
             const [galleryUrl, setGalleryUrl] = useState('');
             const [adminUrl, setAdminUrl] = useState('');
+            const [isFbReady, setIsFbReady] = useState(false);
+            const [errorMsg, setErrorMsg] = useState(null);
             
             const EVENT_DATE = new Date("2026-04-03T20:00:00");
 
+            // Controllo se Firebase è pronto (caricato dal modulo globale)
             useEffect(() => {
-                fb.signInAnonymously(fb.auth).catch(console.error);
-                return fb.onAuthStateChanged(fb.auth, setUser);
+                let attempts = 0;
+                const checkFb = setInterval(() => {
+                    attempts++;
+                    if (window.fb && window.fb.isLoaded) {
+                        setIsFbReady(true);
+                        clearInterval(checkFb);
+                    } else if (window.fbError) {
+                        setErrorMsg("Errore critico caricamento Firebase: " + window.fbError);
+                        clearInterval(checkFb);
+                    } else if (attempts > 50) { // Timeout dopo 5 secondi
+                        setErrorMsg("Timeout durante l'inizializzazione di Firebase. Ricarica la pagina.");
+                        clearInterval(checkFb);
+                    }
+                }, 100);
+                return () => clearInterval(checkFb);
             }, []);
 
             useEffect(() => {
-                if (!user) return;
+                if (!isFbReady) return;
+                const { fb } = window;
                 
-                const newsRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'news');
-                const partsRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'participants');
-                const galleryRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'gallery');
-                const cassaRef = fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', 'settings', 'cassa');
-
-                const u1 = fb.onSnapshot(newsRef, s => setNews(s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0))));
-                const u2 = fb.onSnapshot(partsRef, s => {
-                    const ps = s.docs.map(d => d.data());
-                    setParticipants(ps);
-                    setIsRegistered(ps.some(p => p.userId === user.uid));
+                fb.signInAnonymously(fb.auth).catch(err => {
+                    console.error("Errore Auth:", err);
+                    setErrorMsg("Impossibile connettersi anonimamente.");
                 });
-                const u3 = fb.onSnapshot(galleryRef, s => setGallery(s.docs.map(d => ({id: d.id, ...d.data()}))));
-                const u4 = fb.onSnapshot(cassaRef, d => d.exists() && setCassaImage(d.data().url));
 
-                return () => { u1(); u2(); u3(); u4(); };
-            }, [user]);
+                const unsubscribe = fb.onAuthStateChanged(fb.auth, (user) => {
+                    setUser(user);
+                });
+                return () => unsubscribe();
+            }, [isFbReady]);
+
+            useEffect(() => {
+                if (!user || !isFbReady) return;
+                const { fb } = window;
+                
+                try {
+                    const newsRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'news');
+                    const partsRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'participants');
+                    const galleryRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'gallery');
+                    const cassaRef = fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', 'settings', 'cassa');
+
+                    const u1 = fb.onSnapshot(newsRef, s => {
+                        setNews(s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
+                    }, err => console.error("Errore News:", err));
+
+                    const u2 = fb.onSnapshot(partsRef, s => {
+                        const ps = s.docs.map(d => d.data());
+                        setParticipants(ps);
+                        setIsRegistered(ps.some(p => p.userId === user.uid));
+                    }, err => console.error("Errore Partecipanti:", err));
+
+                    const u3 = fb.onSnapshot(galleryRef, s => {
+                        setGallery(s.docs.map(d => ({id: d.id, ...d.data()})));
+                    }, err => console.error("Errore Galleria:", err));
+
+                    const u4 = fb.onSnapshot(cassaRef, d => {
+                        if (d.exists()) setCassaImage(d.data().url);
+                    }, err => console.error("Errore Settings:", err));
+
+                    return () => { u1(); u2(); u3(); u4(); };
+                } catch (e) {
+                    console.error("Errore configurazione listener Firestore:", e);
+                }
+            }, [user, isFbReady]);
 
             const register = async (e) => {
                 e.preventDefault();
                 const nome = e.target.nome.value;
+                const { fb } = window;
                 setLoading(true);
                 try {
                     await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'participants'), {
@@ -131,12 +189,13 @@
                         timestamp: Date.now()
                     });
                     setView('home');
-                } catch(e) { console.error(e); }
+                } catch(e) { console.error("Errore registrazione:", e); }
                 setLoading(false);
             };
 
             const updateMainPhoto = async () => {
                 if (!adminUrl.trim()) return;
+                const { fb } = window;
                 try {
                     await fb.setDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', 'settings', 'cassa'), {
                         url: adminUrl,
@@ -145,11 +204,12 @@
                     });
                     setAdminUrl('');
                     setIsAdmin(false);
-                } catch(e) { console.error(e); }
+                } catch(e) { console.error("Errore aggiornamento foto:", e); }
             };
 
             const postNews = async () => {
                 if (!newsText.trim() || !isRegistered) return;
+                const { fb } = window;
                 const author = participants.find(p => p.userId === user.uid)?.nomeCognome || 'Anonimo';
                 try {
                     await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'news'), {
@@ -159,11 +219,12 @@
                         timestamp: Date.now()
                     });
                     setNewsText('');
-                } catch(e) { console.error(e); }
+                } catch(e) { console.error("Errore pubblicazione news:", e); }
             };
 
             const addImage = async () => {
                 if (!galleryUrl.trim() || !isRegistered) return;
+                const { fb } = window;
                 try {
                     await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'gallery'), {
                         url: galleryUrl,
@@ -171,8 +232,29 @@
                         timestamp: Date.now()
                     });
                     setGalleryUrl('');
-                } catch(e) { console.error(e); }
+                } catch(e) { console.error("Errore caricamento immagine:", e); }
             };
+
+            if (errorMsg) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-stone-900 p-6 text-center">
+                        <div className="max-w-md">
+                            <div className="text-red-500 text-4xl mb-4">⚠️</div>
+                            <h2 className="text-white font-serif text-xl mb-4 italic">Si è verificato un problema</h2>
+                            <p className="text-stone-400 text-sm mb-6">{errorMsg}</p>
+                            <button onClick={() => window.location.reload()} className="bg-amber-600 text-white px-6 py-2 rounded-full text-xs font-bold uppercase">Riprova</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!isFbReady) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-stone-900">
+                        <div className="text-amber-500 animate-pulse font-serif italic uppercase tracking-widest">Inizializzazione...</div>
+                    </div>
+                );
+            }
 
             return (
                 <div className="min-h-screen pb-12 flex flex-col">
@@ -193,7 +275,7 @@
                             <div className="text-center">
                                 {isAdmin && (
                                     <div className="mb-4 p-4 bg-amber-100 border border-amber-300 rounded-2xl text-left">
-                                        <p className="text-[10px] font-bold uppercase mb-2">Admin: Carica Foto Principale (URL)</p>
+                                        <p className="text-[10px] font-bold uppercase mb-2 text-amber-800">Admin: Carica Foto Principale (URL)</p>
                                         <div className="flex gap-2">
                                             <input value={adminUrl} onChange={e => setAdminUrl(e.target.value)} type="text" placeholder="Incolla URL immagine..." className="flex-1 p-2 text-sm rounded-lg border outline-none" />
                                             <button onClick={updateMainPhoto} className="bg-amber-800 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase">Aggiorna</button>
@@ -215,7 +297,7 @@
                                         <p className="text-amber-800 font-bold">Inizio Ore 20:00</p>
                                     </div>
                                     <div className="bg-stone-800 p-6 rounded-2xl shadow-sm text-left text-white border-t-8 border-red-600">
-                                        <h3 className="font-serif text-2xl mb-2 text-amber-500 text-sm">Registro Portatori</h3>
+                                        <h3 className="font-serif text-2xl mb-2 text-amber-500 text-sm uppercase">Registro Portatori</h3>
                                         <p className="text-[10px] text-stone-300 uppercase font-bold tracking-widest mb-2">Solo Personale VVF</p>
                                         <p className="text-sm italic">L'iscrizione è riservata esclusivamente ai membri del Corpo Nazionale.</p>
                                     </div>
@@ -227,9 +309,9 @@
                             <div className="max-w-md mx-auto bg-white p-8 rounded-3xl shadow-xl border border-stone-200 mt-10">
                                 {isRegistered ? (
                                     <div className="text-center py-10">
-                                        <div className="text-green-500 text-6xl mb-4">✓</div>
+                                        <div className="text-green-500 text-6xl mb-4 text-center mx-auto">✓</div>
                                         <h2 className="text-2xl font-serif mb-2 text-stone-800">Sei Registrato</h2>
-                                        <p className="text-stone-500 mb-6">Accesso completo alle funzioni per i membri della squadra.</p>
+                                        <p className="text-stone-500 mb-6 text-sm">Accesso completo alle funzioni per i membri della squadra.</p>
                                         <button onClick={() => setView('home')} className="bg-stone-900 text-amber-500 px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest">Vai alla Home</button>
                                     </div>
                                 ) : (
