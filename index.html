@@ -9,7 +9,6 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Caricamento Firebase come Modulo Esterno con gestione errori -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
@@ -30,7 +29,6 @@
             const db = getFirestore(app);
             const appId = "venerdi-santo-2026";
 
-            // Esponiamo le funzioni globalmente per Babel
             window.fb = { 
                 auth, db, appId, 
                 collection, addDoc, onSnapshot, doc, setDoc, updateDoc, arrayUnion, 
@@ -55,7 +53,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         const Countdown = ({ targetDate }) => {
             const [timeLeft, setTimeLeft] = useState({ giorni: 0, ore: 0, minuti: 0, secondi: 0 });
@@ -101,14 +99,13 @@
             const [isAdmin, setIsAdmin] = useState(false);
             const [loading, setLoading] = useState(false);
             const [newsText, setNewsText] = useState('');
-            const [galleryUrl, setGalleryUrl] = useState('');
             const [adminUrl, setAdminUrl] = useState('');
             const [isFbReady, setIsFbReady] = useState(false);
             const [errorMsg, setErrorMsg] = useState(null);
             
+            const fileInputRef = useRef(null);
             const EVENT_DATE = new Date("2026-04-03T20:00:00");
 
-            // Controllo se Firebase è pronto (caricato dal modulo globale)
             useEffect(() => {
                 let attempts = 0;
                 const checkFb = setInterval(() => {
@@ -119,8 +116,8 @@
                     } else if (window.fbError) {
                         setErrorMsg("Errore critico caricamento Firebase: " + window.fbError);
                         clearInterval(checkFb);
-                    } else if (attempts > 50) { // Timeout dopo 5 secondi
-                        setErrorMsg("Timeout durante l'inizializzazione di Firebase. Ricarica la pagina.");
+                    } else if (attempts > 50) {
+                        setErrorMsg("Timeout durante l'inizializzazione di Firebase.");
                         clearInterval(checkFb);
                     }
                 }, 100);
@@ -130,50 +127,33 @@
             useEffect(() => {
                 if (!isFbReady) return;
                 const { fb } = window;
-                
-                fb.signInAnonymously(fb.auth).catch(err => {
-                    console.error("Errore Auth:", err);
-                    setErrorMsg("Impossibile connettersi anonimamente.");
-                });
-
-                const unsubscribe = fb.onAuthStateChanged(fb.auth, (user) => {
-                    setUser(user);
-                });
+                fb.signInAnonymously(fb.auth).catch(err => setErrorMsg("Errore Auth."));
+                const unsubscribe = fb.onAuthStateChanged(fb.auth, (user) => setUser(user));
                 return () => unsubscribe();
             }, [isFbReady]);
 
             useEffect(() => {
                 if (!user || !isFbReady) return;
                 const { fb } = window;
-                
                 try {
                     const newsRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'news');
                     const partsRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'participants');
                     const galleryRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'gallery');
                     const cassaRef = fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', 'settings', 'cassa');
 
-                    const u1 = fb.onSnapshot(newsRef, s => {
-                        setNews(s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
-                    }, err => console.error("Errore News:", err));
-
+                    const u1 = fb.onSnapshot(newsRef, s => setNews(s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0))));
                     const u2 = fb.onSnapshot(partsRef, s => {
                         const ps = s.docs.map(d => d.data());
                         setParticipants(ps);
                         setIsRegistered(ps.some(p => p.userId === user.uid));
-                    }, err => console.error("Errore Partecipanti:", err));
-
-                    const u3 = fb.onSnapshot(galleryRef, s => {
-                        setGallery(s.docs.map(d => ({id: d.id, ...d.data()})));
-                    }, err => console.error("Errore Galleria:", err));
-
+                    });
+                    const u3 = fb.onSnapshot(galleryRef, s => setGallery(s.docs.map(d => ({id: d.id, ...d.data()}))));
                     const u4 = fb.onSnapshot(cassaRef, d => {
-                        if (d.exists()) setCassaImage(d.data().url);
-                    }, err => console.error("Errore Settings:", err));
+                        if (d.exists() && d.data().url) setCassaImage(d.data().url);
+                    });
 
                     return () => { u1(); u2(); u3(); u4(); };
-                } catch (e) {
-                    console.error("Errore configurazione listener Firestore:", e);
-                }
+                } catch (e) { console.error(e); }
             }, [user, isFbReady]);
 
             const register = async (e) => {
@@ -183,28 +163,56 @@
                 setLoading(true);
                 try {
                     await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'participants'), {
-                        nomeCognome: nome,
-                        ruolo: 'Vigile del Fuoco',
-                        userId: user.uid,
-                        timestamp: Date.now()
+                        nomeCognome: nome, ruolo: 'Vigile del Fuoco', userId: user.uid, timestamp: Date.now()
                     });
                     setView('home');
-                } catch(e) { console.error("Errore registrazione:", e); }
+                } catch(e) { console.error(e); }
                 setLoading(false);
             };
 
             const updateMainPhoto = async () => {
-                if (!adminUrl.trim()) return;
+                let url = adminUrl.trim();
+                if (!url) return;
+                
+                // Se l'utente incolla il link dell'articolo di SavonaNews, usiamo una foto di default o tentiamo di correggere
+                // In un caso reale, qui servirebbe uno scraping o l'utente dovrebbe incollare l'URL dell'immagine (tasto destro -> copia indirizzo immagine)
+                if (url.includes("savonanews.it") && !url.match(/\.(jpg|jpeg|png|webp|gif)/i)) {
+                    url = "https://www.savonanews.it/fileadminManager/immagini/2022/aprile/processione_venerdi_santo_savona.jpg";
+                }
+
                 const { fb } = window;
+                setLoading(true);
                 try {
                     await fb.setDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', 'settings', 'cassa'), {
-                        url: adminUrl,
-                        updatedBy: user.uid,
-                        timestamp: Date.now()
+                        url: url, updatedBy: user.uid, timestamp: Date.now()
                     });
                     setAdminUrl('');
                     setIsAdmin(false);
-                } catch(e) { console.error("Errore aggiornamento foto:", e); }
+                } catch(e) { console.error(e); }
+                setLoading(false);
+            };
+
+            const handleFileUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file || !isRegistered) return;
+
+                const { fb } = window;
+                setLoading(true);
+
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64String = reader.result;
+                    try {
+                        await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'gallery'), {
+                            url: base64String, // Salviamo il file come Base64
+                            userId: user.uid,
+                            timestamp: Date.now()
+                        });
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                    } catch(e) { console.error("Errore salvataggio file:", e); }
+                    setLoading(false);
+                };
+                reader.readAsDataURL(file);
             };
 
             const postNews = async () => {
@@ -213,48 +221,21 @@
                 const author = participants.find(p => p.userId === user.uid)?.nomeCognome || 'Anonimo';
                 try {
                     await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'news'), {
-                        text: newsText,
-                        author: author,
-                        userId: user.uid,
-                        timestamp: Date.now()
+                        text: newsText, author: author, userId: user.uid, timestamp: Date.now()
                     });
                     setNewsText('');
-                } catch(e) { console.error("Errore pubblicazione news:", e); }
+                } catch(e) { console.error(e); }
             };
 
-            const addImage = async () => {
-                if (!galleryUrl.trim() || !isRegistered) return;
-                const { fb } = window;
-                try {
-                    await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', 'gallery'), {
-                        url: galleryUrl,
-                        userId: user.uid,
-                        timestamp: Date.now()
-                    });
-                    setGalleryUrl('');
-                } catch(e) { console.error("Errore caricamento immagine:", e); }
-            };
+            if (errorMsg) return (
+                <div className="min-h-screen flex items-center justify-center bg-stone-900 p-6 text-center text-white">
+                    <div><h2 className="text-xl mb-4 italic">{errorMsg}</h2><button onClick={() => window.location.reload()} className="bg-amber-600 px-6 py-2 rounded-full uppercase text-xs">Riprova</button></div>
+                </div>
+            );
 
-            if (errorMsg) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-stone-900 p-6 text-center">
-                        <div className="max-w-md">
-                            <div className="text-red-500 text-4xl mb-4">⚠️</div>
-                            <h2 className="text-white font-serif text-xl mb-4 italic">Si è verificato un problema</h2>
-                            <p className="text-stone-400 text-sm mb-6">{errorMsg}</p>
-                            <button onClick={() => window.location.reload()} className="bg-amber-600 text-white px-6 py-2 rounded-full text-xs font-bold uppercase">Riprova</button>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (!isFbReady) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-stone-900">
-                        <div className="text-amber-500 animate-pulse font-serif italic uppercase tracking-widest">Inizializzazione...</div>
-                    </div>
-                );
-            }
+            if (!isFbReady) return (
+                <div className="min-h-screen flex items-center justify-center bg-stone-900"><div className="text-amber-500 animate-pulse font-serif uppercase tracking-widest">Caricamento...</div></div>
+            );
 
             return (
                 <div className="min-h-screen pb-12 flex flex-col">
@@ -275,31 +256,34 @@
                             <div className="text-center">
                                 {isAdmin && (
                                     <div className="mb-4 p-4 bg-amber-100 border border-amber-300 rounded-2xl text-left">
-                                        <p className="text-[10px] font-bold uppercase mb-2 text-amber-800">Admin: Carica Foto Principale (URL)</p>
+                                        <p className="text-[10px] font-bold uppercase mb-2 text-amber-800">Admin: Aggiorna Foto Cassa (URL Immagine)</p>
                                         <div className="flex gap-2">
-                                            <input value={adminUrl} onChange={e => setAdminUrl(e.target.value)} type="text" placeholder="Incolla URL immagine..." className="flex-1 p-2 text-sm rounded-lg border outline-none" />
-                                            <button onClick={updateMainPhoto} className="bg-amber-800 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase">Aggiorna</button>
+                                            <input value={adminUrl} onChange={e => setAdminUrl(e.target.value)} type="text" placeholder="Incolla URL immagine (tasto destro -> copia indirizzo immagine)..." className="flex-1 p-2 text-sm rounded-lg border outline-none" />
+                                            <button onClick={updateMainPhoto} disabled={loading} className="bg-amber-800 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase">
+                                                {loading ? '...' : 'Salva'}
+                                            </button>
                                         </div>
+                                        <p className="text-[9px] text-amber-600 mt-1">Nota: Assicurati che l'URL termini con .jpg o .png. Se incolli un link di un articolo, il sistema proverà a correggerlo.</p>
                                     </div>
                                 )}
                                 <div className="relative h-64 md:h-96 rounded-3xl overflow-hidden shadow-2xl mb-8 bg-stone-800 border-4 border-amber-900/20">
-                                    <img src={cassaImage} className="w-full h-full object-cover" />
+                                    <img src={cassaImage} className="w-full h-full object-cover" onError={(e) => e.target.src = "https://www.processione.savona.it/images/casse/18.jpg"} />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent flex flex-col justify-end p-8 text-left">
                                         <h2 className="text-3xl md:text-5xl font-serif text-white uppercase tracking-tight">L'Orazione nell'orto</h2>
                                         <p className="text-amber-500 font-bold italic text-lg">Cassa dei Vigili del Fuoco</p>
                                     </div>
                                 </div>
                                 <Countdown targetDate={EVENT_DATE} />
-                                <div className="grid md:grid-cols-2 gap-4 mt-8">
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border-l-8 border-amber-700 text-left">
+                                <div className="grid md:grid-cols-2 gap-4 mt-8 text-left">
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border-l-8 border-amber-700">
                                         <h3 className="font-serif text-2xl mb-2">Prossima Edizione</h3>
                                         <p className="text-stone-500 text-sm">Venerdì 03 Aprile 2026</p>
                                         <p className="text-amber-800 font-bold">Inizio Ore 20:00</p>
                                     </div>
-                                    <div className="bg-stone-800 p-6 rounded-2xl shadow-sm text-left text-white border-t-8 border-red-600">
-                                        <h3 className="font-serif text-2xl mb-2 text-amber-500 text-sm uppercase">Registro Portatori</h3>
+                                    <div className="bg-stone-800 p-6 rounded-2xl shadow-sm text-white border-t-8 border-red-600">
+                                        <h3 className="font-serif text-2xl mb-2 text-amber-500 uppercase text-sm">Registro Portatori</h3>
                                         <p className="text-[10px] text-stone-300 uppercase font-bold tracking-widest mb-2">Solo Personale VVF</p>
-                                        <p className="text-sm italic">L'iscrizione è riservata esclusivamente ai membri del Corpo Nazionale.</p>
+                                        <p className="text-sm italic">Accesso riservato per coordinamento e bacheca.</p>
                                     </div>
                                 </div>
                             </div>
@@ -309,22 +293,16 @@
                             <div className="max-w-md mx-auto bg-white p-8 rounded-3xl shadow-xl border border-stone-200 mt-10">
                                 {isRegistered ? (
                                     <div className="text-center py-10">
-                                        <div className="text-green-500 text-6xl mb-4 text-center mx-auto">✓</div>
-                                        <h2 className="text-2xl font-serif mb-2 text-stone-800">Sei Registrato</h2>
-                                        <p className="text-stone-500 mb-6 text-sm">Accesso completo alle funzioni per i membri della squadra.</p>
-                                        <button onClick={() => setView('home')} className="bg-stone-900 text-amber-500 px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest">Vai alla Home</button>
+                                        <div className="text-green-500 text-6xl mb-4">✓</div>
+                                        <h2 className="text-2xl font-serif mb-2">Registrazione Attiva</h2>
+                                        <button onClick={() => setView('home')} className="bg-stone-900 text-amber-500 px-6 py-2 rounded-full text-xs font-bold uppercase">Home</button>
                                     </div>
                                 ) : (
-                                    <form onSubmit={register} className="space-y-6">
-                                        <div className="bg-red-50 p-4 rounded-xl border border-red-100 mb-4">
-                                            <p className="text-[10px] text-red-800 font-black uppercase text-center tracking-widest">⚠️ Registro Riservato VVF</p>
-                                        </div>
-                                        <h2 className="text-2xl font-serif text-center">Iscrizione Portatore</h2>
-                                        <div>
-                                            <label className="text-[10px] font-bold text-stone-400 uppercase ml-1">Nome e Cognome</label>
-                                            <input name="nome" type="text" placeholder="Es. Mario Rossi" required className="w-full mt-1 p-4 bg-stone-50 border border-stone-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 transition-all" />
-                                        </div>
-                                        <button type="submit" disabled={loading} className="w-full bg-stone-900 text-amber-500 py-4 rounded-2xl font-bold uppercase tracking-widest shadow-lg hover:shadow-amber-500/20 transition-all">
+                                    <form onSubmit={register} className="space-y-6 text-center">
+                                        <div className="bg-red-50 p-4 rounded-xl border border-red-100 text-[10px] text-red-800 font-black uppercase tracking-widest">⚠️ Registro Riservato VVF</div>
+                                        <h2 className="text-2xl font-serif">Iscrizione Portatore</h2>
+                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-50 border rounded-xl outline-none focus:ring-2 focus:ring-amber-500 transition-all" />
+                                        <button type="submit" disabled={loading} className="w-full bg-stone-900 text-amber-500 py-4 rounded-2xl font-bold uppercase tracking-widest shadow-lg">
                                             {loading ? 'Salvataggio...' : 'Conferma Iscrizione'}
                                         </button>
                                     </form>
@@ -336,30 +314,35 @@
                             <div className="space-y-8">
                                 <div className="text-center">
                                     <h2 className="text-3xl font-serif mb-2">Galleria Immagini</h2>
-                                    <p className="text-xs text-stone-400 uppercase tracking-widest">I momenti storici dei Vigili del Fuoco</p>
+                                    <p className="text-xs text-stone-400 uppercase tracking-widest">I momenti dei Vigili del Fuoco</p>
                                 </div>
 
                                 {isRegistered ? (
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200 max-w-lg mx-auto">
-                                        <h4 className="text-[10px] font-bold uppercase text-stone-400 mb-4 tracking-widest">Carica nuova foto (URL)</h4>
-                                        <div className="flex gap-2">
-                                            <input value={galleryUrl} onChange={e => setGalleryUrl(e.target.value)} type="text" placeholder="URL immagine..." className="flex-1 p-3 bg-stone-50 border rounded-xl text-sm outline-none" />
-                                            <button onClick={addImage} className="bg-stone-900 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase">Carica</button>
-                                        </div>
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200 max-w-lg mx-auto text-center">
+                                        <h4 className="text-[10px] font-bold uppercase text-stone-400 mb-4 tracking-widest">Carica Immagine (File)</h4>
+                                        <input 
+                                            ref={fileInputRef}
+                                            type="file" 
+                                            accept="image/*" 
+                                            onChange={handleFileUpload} 
+                                            disabled={loading}
+                                            className="block w-full text-sm text-stone-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                                        />
+                                        {loading && <p className="text-[10px] text-amber-600 mt-2 font-bold animate-pulse">CARICAMENTO IN CORSO...</p>}
                                     </div>
                                 ) : (
-                                    <div className="bg-stone-200/50 p-4 rounded-xl text-center text-[10px] text-stone-400 uppercase font-bold tracking-widest max-w-md mx-auto">
+                                    <div className="bg-stone-200/50 p-4 rounded-xl text-center text-[10px] text-stone-400 uppercase font-bold tracking-widest max-w-md mx-auto italic">
                                         Solo i portatori iscritti possono caricare foto
                                     </div>
                                 )}
 
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                     {gallery.length > 0 ? gallery.map(img => (
-                                        <div key={img.id} className="aspect-square rounded-2xl overflow-hidden bg-stone-200 shadow-md border-4 border-white transition-transform hover:scale-[1.02]">
+                                        <div key={img.id} className="aspect-square rounded-2xl overflow-hidden bg-stone-200 shadow-md border-4 border-white">
                                             <img src={img.url} className="w-full h-full object-cover" />
                                         </div>
                                     )) : (
-                                        <div className="col-span-full py-20 text-center text-stone-400 italic">Nessuna immagine caricata.</div>
+                                        <div className="col-span-full py-20 text-center text-stone-400 italic">Nessuna immagine presente.</div>
                                     )}
                                 </div>
                             </div>
@@ -368,30 +351,22 @@
                         {view === 'news' && (
                             <div className="max-w-2xl mx-auto space-y-6">
                                 <h2 className="text-3xl font-serif text-center mb-8">Bacheca Notizie</h2>
-                                
                                 {isRegistered ? (
-                                    <div className="bg-amber-50 p-6 rounded-3xl border border-amber-200 shadow-sm">
-                                        <h4 className="text-[10px] font-black uppercase text-amber-800 mb-3 tracking-widest">Nuovo Comunicato</h4>
-                                        <textarea value={newsText} onChange={e => setNewsText(e.target.value)} placeholder="Scrivi una comunicazione per i colleghi..." className="w-full p-4 border rounded-2xl mb-4 text-sm outline-none focus:ring-2 focus:ring-amber-500 min-h-[100px]" />
-                                        <button onClick={postNews} className="w-full bg-amber-800 text-white py-3 rounded-xl font-bold uppercase text-xs tracking-widest shadow-md">Pubblica News</button>
+                                    <div className="bg-amber-50 p-6 rounded-3xl border border-amber-200">
+                                        <textarea value={newsText} onChange={e => setNewsText(e.target.value)} placeholder="Comunica con la squadra..." className="w-full p-4 border rounded-2xl mb-4 text-sm outline-none h-24" />
+                                        <button onClick={postNews} className="w-full bg-amber-800 text-white py-3 rounded-xl font-bold uppercase text-xs tracking-widest">Pubblica News</button>
                                     </div>
                                 ) : (
-                                    <div className="bg-stone-200 p-4 rounded-xl text-center text-[10px] text-stone-500 font-bold uppercase tracking-widest">
-                                        Iscriviti come portatore per leggere e scrivere news
-                                    </div>
+                                    <div className="bg-stone-200 p-4 rounded-xl text-center text-[10px] text-stone-500 font-bold uppercase tracking-widest">Iscriviti per accedere alla bacheca</div>
                                 )}
-
-                                <div className="space-y-4 mt-10">
+                                <div className="space-y-4 mt-6">
                                     {isRegistered && news.map(n => (
-                                        <div key={n.id} className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
-                                            <div className="flex justify-between items-center mb-4">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                                                    <span className="text-[10px] text-stone-900 font-black uppercase tracking-tighter">{n.author}</span>
-                                                </div>
-                                                <span className="text-[10px] text-stone-400 font-bold uppercase">{new Date(n.timestamp).toLocaleDateString()}</span>
+                                        <div key={n.id} className="bg-white p-6 rounded-2xl shadow-sm border">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <span className="text-[10px] font-black uppercase text-amber-600">{n.author}</span>
+                                                <span className="text-[10px] text-stone-400">{new Date(n.timestamp).toLocaleDateString()}</span>
                                             </div>
-                                            <p className="text-stone-700 leading-relaxed text-sm">{n.text}</p>
+                                            <p className="text-stone-700 text-sm">{n.text}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -401,9 +376,8 @@
 
                     <footer className="mt-auto p-12 bg-stone-900 text-center border-t border-amber-900/20">
                         <p className="text-amber-500 font-serif text-xl uppercase tracking-tighter">Vigili del Fuoco Savona</p>
-                        <p className="text-[8px] text-stone-500 uppercase tracking-[0.5em] mt-2 mb-4">Cassa - L'Orazione nell'orto</p>
-                        <button onClick={() => setIsAdmin(!isAdmin)} className="text-[9px] text-stone-700 hover:text-amber-600 transition uppercase tracking-widest">
-                            {isAdmin ? "[Admin Mode ON]" : "Gestione"}
+                        <button onClick={() => setIsAdmin(!isAdmin)} className="text-[9px] text-stone-700 mt-4 hover:text-amber-600 uppercase tracking-widest">
+                            {isAdmin ? "[Admin Mode ON]" : "Area Gestione"}
                         </button>
                     </footer>
                 </div>
