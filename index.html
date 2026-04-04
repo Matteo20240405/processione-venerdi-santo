@@ -12,7 +12,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEfowaPh1GL3Rn4mgHTtvVA1mTac1y1JA", 
@@ -27,9 +27,8 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        // Rendiamo le funzioni accessibili a React
         window.fb = { 
-            db, auth, collection, addDoc, onSnapshot, query, orderBy, signInAnonymously, onAuthStateChanged,
+            db, auth, collection, addDoc, onSnapshot, query, orderBy, doc, getDoc, signInAnonymously, onAuthStateChanged,
             appPath: "venerdi-santo-2026" 
         };
     </script>
@@ -38,6 +37,8 @@
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;700&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f5f5f4; }
         .font-serif { font-family: 'Playfair Display', serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d97706; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -53,6 +54,7 @@
             const [gallery, setGallery] = useState([]);
             const [isRegistered, setIsRegistered] = useState(false);
             const [loading, setLoading] = useState(false);
+            const [mainImage, setMainImage] = useState("https://www.processione.savona.it/images/casse/18.jpg");
 
             useEffect(() => {
                 const init = setInterval(() => {
@@ -67,9 +69,15 @@
                 }, 500);
             }, []);
 
-            const loadData = (uid) => {
-                const { db, collection, onSnapshot, query, orderBy, appPath } = window.fb;
+            const loadData = async (uid) => {
+                const { db, collection, onSnapshot, query, orderBy, doc, getDoc, appPath } = window.fb;
                 
+                // Carica Immagine Principale personalizzata (se esiste nel DB)
+                const cassaDoc = await getDoc(doc(db, 'artifacts', appPath, 'public', 'data', 'settings', 'cassa'));
+                if (cassaDoc.exists() && cassaDoc.data().url) {
+                    setMainImage(cassaDoc.data().url);
+                }
+
                 // Carica Partecipanti
                 const pRef = collection(db, 'artifacts', appPath, 'public', 'data', 'participants');
                 onSnapshot(pRef, (s) => {
@@ -121,9 +129,9 @@
                         <div className="max-w-4xl mx-auto flex justify-between items-center">
                             <h1 className="text-lg font-serif font-bold text-amber-500 uppercase">VVF Savona</h1>
                             <div className="flex gap-4 text-[10px] font-bold uppercase tracking-widest">
-                                <button onClick={() => setView('home')}>Home</button>
-                                <button onClick={() => setView('iscrizione')}>Iscrizione</button>
-                                <button onClick={() => setView('galleria')}>Galleria</button>
+                                <button onClick={() => setView('home')} className={view === 'home' ? 'text-amber-400' : ''}>Home</button>
+                                <button onClick={() => setView('iscrizione')} className={view === 'iscrizione' ? 'text-amber-400' : ''}>Iscrizione</button>
+                                <button onClick={() => setView('galleria')} className={view === 'galleria' ? 'text-amber-400' : ''}>Galleria</button>
                             </div>
                         </div>
                     </nav>
@@ -131,36 +139,48 @@
                     <main className="max-w-4xl mx-auto p-4 w-full flex-grow">
                         {view === 'home' && (
                             <div className="space-y-6">
-                                <div className="relative h-64 md:h-96 rounded-[2rem] overflow-hidden shadow-2xl">
-                                    <img src="https://www.processione.savona.it/images/casse/18.jpg" className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 p-8 flex flex-col justify-end">
+                                <div className="relative h-64 md:h-96 rounded-[2rem] overflow-hidden shadow-2xl bg-stone-800">
+                                    <img 
+                                        src={mainImage} 
+                                        className="w-full h-full object-cover" 
+                                        onError={(e) => e.target.src = "https://www.processione.savona.it/images/casse/18.jpg"}
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 p-8 flex flex-col justify-end">
                                         <h2 className="text-3xl font-serif text-white uppercase">L'Orazione nell'orto</h2>
-                                        <p className="text-amber-500 font-bold uppercase text-xs tracking-widest">Squadra Vigili del Fuoco</p>
+                                        <p className="text-amber-500 font-bold uppercase text-xs tracking-widest italic">Cassa dei Vigili del Fuoco</p>
                                     </div>
                                 </div>
                                 
-                                <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl">
-                                    <h3 className="text-amber-500 font-serif text-xl mb-4 uppercase tracking-tighter">Squadra Portatori ({participants.length})</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                                        {participants.map((p, i) => (
+                                <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl border-t-4 border-red-700">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-amber-500 font-serif text-xl uppercase tracking-tighter">Squadra Portatori</h3>
+                                        <span className="bg-amber-600 text-black px-3 py-1 rounded-full text-[10px] font-black uppercase">{participants.length} Iscritti</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                        {participants.length > 0 ? participants.map((p, i) => (
                                             <div key={i} className="text-xs py-2 border-b border-stone-800 text-stone-300 italic flex items-center gap-2">
-                                                <span className="w-1 h-1 bg-amber-500 rounded-full"></span> {p.nomeCognome}
+                                                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> {p.nomeCognome}
                                             </div>
-                                        ))}
+                                        )) : <p className="text-stone-500 text-xs italic">Nessun portatore ancora iscritto.</p>}
                                     </div>
                                 </div>
                             </div>
                         )}
 
                         {view === 'iscrizione' && (
-                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem] shadow-2xl mt-10">
+                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem] shadow-2xl mt-10 border border-stone-200">
                                 {isRegistered ? (
-                                    <div className="text-center font-bold text-green-600">Sei già iscritto alla squadra!</div>
+                                    <div className="text-center">
+                                        <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-2xl">✓</div>
+                                        <p className="font-bold text-stone-800 mb-6">Sei registrato nel registro portatori.</p>
+                                        <button onClick={() => setView('home')} className="w-full bg-stone-950 text-amber-500 py-3 rounded-xl font-bold uppercase text-xs tracking-widest">Torna alla Home</button>
+                                    </div>
                                 ) : (
                                     <form onSubmit={handleIscrizione} className="space-y-4 text-center">
-                                        <h2 className="text-2xl font-serif mb-4">Registro Portatori</h2>
-                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-100 rounded-xl outline-none border-2 border-transparent focus:border-amber-500" />
-                                        <button type="submit" className="w-full bg-stone-950 text-amber-500 py-4 rounded-xl font-black uppercase tracking-widest">Conferma Iscrizione</button>
+                                        <h2 className="text-2xl font-serif mb-2">Registro Portatori</h2>
+                                        <p className="text-[10px] text-stone-400 uppercase font-bold tracking-widest mb-4">Solo personale Vigili del Fuoco</p>
+                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-100 rounded-xl outline-none border-2 border-transparent focus:border-amber-500 text-stone-800" />
+                                        <button type="submit" className="w-full bg-stone-950 text-amber-500 py-4 rounded-xl font-black uppercase tracking-widest shadow-xl">Conferma Iscrizione</button>
                                     </form>
                                 )}
                             </div>
@@ -168,25 +188,35 @@
 
                         {view === 'galleria' && (
                             <div className="space-y-8">
-                                <h2 className="text-3xl font-serif text-center">Galleria Portatori</h2>
-                                {isRegistered && (
-                                    <div className="bg-white p-6 rounded-3xl border-2 border-dashed border-stone-300 text-center">
+                                <div className="text-center">
+                                    <h2 className="text-3xl font-serif">Galleria Portatori</h2>
+                                    <p className="text-[10px] text-stone-400 uppercase font-bold tracking-widest">Foto ufficiali e della squadra</p>
+                                </div>
+                                {isRegistered ? (
+                                    <div className="bg-white p-6 rounded-3xl border-2 border-dashed border-amber-200 text-center max-w-sm mx-auto shadow-sm">
                                         <input type="file" multiple accept="image/*" onChange={handleUpload} className="hidden" id="file-upload" />
-                                        <label htmlFor="file-upload" className="cursor-pointer text-amber-700 font-bold uppercase text-xs">
-                                            {loading ? 'Caricamento...' : 'Clicca qui per caricare più foto'}
+                                        <label htmlFor="file-upload" className="cursor-pointer text-amber-800 font-bold uppercase text-[10px] tracking-widest">
+                                            {loading ? 'Caricamento in corso...' : '📸 Clicca per caricare foto'}
                                         </label>
+                                    </div>
+                                ) : (
+                                    <div className="bg-amber-50 p-6 rounded-2xl text-amber-800 text-xs text-center border border-amber-100 italic">
+                                        Iscriviti per poter caricare e visualizzare le foto della squadra.
                                     </div>
                                 )}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     {gallery.map(img => (
-                                        <div key={img.id} className="aspect-square rounded-2xl overflow-hidden shadow-lg bg-stone-200">
-                                            <img src={img.url} className="w-full h-full object-cover hover:scale-110 transition-transform" loading="lazy" />
+                                        <div key={img.id} className="aspect-square rounded-2xl overflow-hidden shadow-lg bg-stone-200 border-2 border-white">
+                                            <img src={img.url} className="w-full h-full object-cover" loading="lazy" />
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
                     </main>
+                    <footer className="p-8 text-center">
+                         <p className="text-stone-400 text-[8px] uppercase font-bold tracking-[0.3em]">Venerdì Santo Savona • VVF</p>
+                    </footer>
                 </div>
             );
         }
