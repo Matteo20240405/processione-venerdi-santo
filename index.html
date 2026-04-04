@@ -160,4 +160,59 @@
                         )}
 
                         {view === 'iscrizione' && (
-                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem]
+                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem] shadow-2xl mt-10 border border-stone-200 text-center">
+                                {isRegistered ? <p className="font-bold text-green-600">Registrazione confermata ✓</p> : (
+                                    <form onSubmit={handleIscrizione} className="space-y-4">
+                                        <h2 className="text-2xl font-serif mb-2">Registro Portatori</h2>
+                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-100 rounded-xl outline-none" />
+                                        <button type="submit" className="w-full bg-stone-950 text-amber-500 py-4 rounded-xl font-black uppercase tracking-widest shadow-xl">Conferma</button>
+                                    </form>
+                                )}
+                            </div>
+                        )}
+
+                        {view === 'galleria' && (
+                            <div className="space-y-8">
+                                <h2 className="text-3xl font-serif text-center">Galleria Portatori</h2>
+                                {isRegistered && (
+                                    <div className="bg-white p-6 rounded-3xl border-2 border-dashed border-amber-200 text-center max-w-sm mx-auto shadow-sm">
+                                        <input type="file" multiple accept="image/*" onChange={handleUpload} className="hidden" id="file-upload" />
+                                        <label htmlFor="file-upload" className="cursor-pointer text-amber-800 font-bold uppercase text-[10px] tracking-widest">
+                                            {loading ? 'Caricamento...' : '📸 Aggiungi Foto'}
+                                        </label>
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    {gallery.map(img => (
+                                        <div key={img.id} onClick={() => setSelectedImg(img.url)} className="relative aspect-square rounded-2xl overflow-hidden shadow-lg bg-stone-200 border-2 border-white cursor-pointer group">
+                                            <img src={img.url} className="w-full h-full object-cover" loading="lazy" />
+                                            {user && img.userId === user.uid && (
+                                                <button 
+                                                    onClick={(e) => deleteImage(e, img.id)}
+                                                    className="absolute top-2 right-2 bg-red-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                                >
+                                                    &times;
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {selectedImg && (
+                        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4" onClick={() => setSelectedImg(null)}>
+                            <button className="absolute top-6 right-6 text-white text-4xl">&times;</button>
+                            <img src={selectedImg} className="max-w-full max-h-full object-contain rounded-lg animate-zoom" />
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
