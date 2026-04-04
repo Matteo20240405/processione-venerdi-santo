@@ -12,7 +12,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, getDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBEfowaPh1GL3Rn4mgHTtvVA1mTac1y1JA", 
@@ -24,11 +24,9 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-
         window.fb = { 
-            db, auth, collection, addDoc, onSnapshot, query, orderBy, doc, getDoc, deleteDoc, signInAnonymously, onAuthStateChanged,
+            db: getFirestore(app), auth: getAuth(app), 
+            collection, addDoc, onSnapshot, query, orderBy, doc, getDoc, setDoc, deleteDoc, signInAnonymously, onAuthStateChanged,
             appPath: "venerdi-santo-2026" 
         };
     </script>
@@ -37,8 +35,8 @@
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;700&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f5f5f4; }
         .font-serif { font-family: 'Playfair Display', serif; }
-        .animate-zoom { animation: zoom 0.2s ease-out; }
-        @keyframes zoom { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d97706; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -56,6 +54,7 @@
             const [loading, setLoading] = useState(false);
             const [selectedImg, setSelectedImg] = useState(null);
             const [mainImage, setMainImage] = useState("https://www.processione.savona.it/images/casse/18.jpg");
+            const [isAdmin, setIsAdmin] = useState(false);
 
             useEffect(() => {
                 const init = setInterval(() => {
@@ -71,87 +70,93 @@
             }, []);
 
             const loadData = async (uid) => {
-                const { db, collection, onSnapshot, query, orderBy, doc, getDoc, appPath } = window.fb;
+                const { db, collection, onSnapshot, query, orderBy, doc, appPath } = window.fb;
                 
+                // Immagine Home
+                onSnapshot(doc(db, 'artifacts', appPath, 'public', 'data', 'settings', 'cassa'), (d) => {
+                    if (d.exists() && d.data().url) setMainImage(d.data().url);
+                });
+
+                // Portatori
                 onSnapshot(collection(db, 'artifacts', appPath, 'public', 'data', 'participants'), (s) => {
-                    const list = s.docs.map(d => d.data());
+                    const list = s.docs.map(d => ({id: d.id, ...d.data()}));
                     setParticipants(list);
                     setIsRegistered(list.some(p => p.userId === uid));
                 });
 
+                // Galleria
                 onSnapshot(query(collection(db, 'artifacts', appPath, 'public', 'data', 'gallery'), orderBy('timestamp', 'desc')), (s) => {
                     setGallery(s.docs.map(d => ({id: d.id, ...d.data()})));
                 });
             };
 
+            const toggleAdmin = () => {
+                if (isAdmin) { setIsAdmin(false); setView('home'); } 
+                else {
+                    const pass = prompt("Inserisci Password Admin:");
+                    if (pass === "115") setIsAdmin(true);
+                    else alert("Password errata");
+                }
+            };
+
+            const changeMainImage = async () => {
+                const url = prompt("Incolla il link della nuova immagine per la Home:", mainImage);
+                if (!url) return;
+                const { db, doc, setDoc, appPath } = window.fb;
+                await setDoc(doc(db, 'artifacts', appPath, 'public', 'data', 'settings', 'cassa'), { url });
+            };
+
+            const deleteItem = async (col, id) => {
+                if (!confirm("Confermi l'eliminazione?")) return;
+                const { db, doc, deleteDoc, appPath } = window.fb;
+                await deleteDoc(doc(db, 'artifacts', appPath, 'public', 'data', col, id));
+            };
+
             const handleUpload = async (e) => {
                 const files = Array.from(e.target.files);
-                if (!files.length) return;
                 setLoading(true);
                 const { db, collection, addDoc, appPath } = window.fb;
-
                 for (let file of files) {
                     const reader = new FileReader();
                     reader.readAsDataURL(file);
-                    reader.onload = async (event) => {
+                    reader.onload = async (ev) => {
                         await addDoc(collection(db, 'artifacts', appPath, 'public', 'data', 'gallery'), {
-                            url: event.target.result,
-                            userId: user.uid,
-                            timestamp: Date.now()
+                            url: ev.target.result, userId: user.uid, timestamp: Date.now()
                         });
                     };
                 }
                 setLoading(false);
             };
 
-            const deleteImage = async (e, id) => {
-                e.stopPropagation(); // Evita di aprire l'immagine quando clicchi la X
-                if (!confirm("Vuoi eliminare definitivamente questa foto?")) return;
-                const { db, doc, deleteDoc, appPath } = window.fb;
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appPath, 'public', 'data', 'gallery', id));
-                } catch (err) { alert("Errore durante l'eliminazione"); }
-            };
-
-            const handleIscrizione = async (e) => {
-                e.preventDefault();
-                const nome = e.target.nome.value;
-                const { db, collection, addDoc, appPath } = window.fb;
-                await addDoc(collection(db, 'artifacts', appPath, 'public', 'data', 'participants'), {
-                    nomeCognome: nome, userId: user.uid, timestamp: Date.now()
-                });
-                setView('home');
-            };
-
             return (
                 <div className="min-h-screen flex flex-col">
-                    <nav className="bg-stone-950 text-white p-4 shadow-xl sticky top-0 z-50 border-b border-amber-900/50">
-                        <div className="max-w-4xl mx-auto flex justify-between items-center">
-                            <h1 className="text-lg font-serif font-bold text-amber-500 uppercase">VVF Savona</h1>
-                            <div className="flex gap-4 text-[10px] font-bold uppercase tracking-widest">
-                                <button onClick={() => setView('home')} className={view === 'home' ? 'text-amber-400' : ''}>Home</button>
-                                <button onClick={() => setView('iscrizione')} className={view === 'iscrizione' ? 'text-amber-400' : ''}>Iscrizione</button>
-                                <button onClick={() => setView('galleria')} className={view === 'galleria' ? 'text-amber-400' : ''}>Galleria</button>
-                            </div>
+                    <nav className="bg-stone-950 text-white p-4 shadow-xl sticky top-0 z-50 border-b border-amber-900/50 flex justify-between items-center">
+                        <h1 className="text-lg font-serif font-bold text-amber-500">VVF Savona</h1>
+                        <div className="flex gap-4 text-[10px] font-bold uppercase tracking-widest">
+                            <button onClick={() => setView('home')}>Home</button>
+                            <button onClick={() => setView('iscrizione')}>Iscrizione</button>
+                            <button onClick={() => setView('galleria')}>Galleria</button>
+                            <button onClick={toggleAdmin} className={isAdmin ? "text-red-500" : "text-stone-500"}>{isAdmin ? 'Esci' : 'Admin'}</button>
                         </div>
                     </nav>
 
                     <main className="max-w-4xl mx-auto p-4 w-full flex-grow">
                         {view === 'home' && (
                             <div className="space-y-6">
-                                <div className="relative h-64 md:h-96 rounded-[2rem] overflow-hidden shadow-2xl bg-stone-800">
+                                <div className="relative h-64 md:h-96 rounded-[2rem] overflow-hidden shadow-2xl">
                                     <img src={mainImage} className="w-full h-full object-cover" />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 p-8 flex flex-col justify-end">
-                                        <h2 className="text-3xl font-serif text-white uppercase leading-none">L'Orazione nell'orto</h2>
-                                        <p className="text-amber-500 font-bold uppercase text-[10px] tracking-[0.2em] mt-2">Squadra Vigili del Fuoco</p>
+                                        <h2 className="text-3xl font-serif text-white uppercase">L'Orazione nell'orto</h2>
+                                        {isAdmin && <button onClick={changeMainImage} className="text-[10px] bg-white/20 text-white p-2 rounded mt-2 uppercase">Cambia Foto Home</button>}
                                     </div>
                                 </div>
                                 <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl border-t-4 border-red-700">
-                                    <h3 className="text-amber-500 font-serif text-xl uppercase mb-4 tracking-tighter">Squadra Portatori ({participants.length})</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 max-h-48 overflow-y-auto pr-2">
-                                        {participants.map((p, i) => (
-                                            <div key={i} className="text-xs py-2 border-b border-stone-800 text-stone-300 italic flex items-center gap-2">
-                                                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> {p.nomeCognome}
+                                    <h3 className="text-amber-500 font-serif text-xl mb-4 uppercase tracking-tighter">Squadra Portatori ({participants.length})</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto custom-scrollbar">
+                                        {participants.map((p) => (
+                                            <div key={p.id} className="text-xs py-2 border-b border-stone-800 text-stone-300 flex justify-between items-center italic">
+                                                <span>• {p.nomeCognome}</span>
+                                                {isAdmin && <button onClick={() => deleteItem('participants', p.id)} className="text-red-500 font-bold ml-2 underline">Elimina</button>}
                                             </div>
                                         ))}
                                     </div>
@@ -160,12 +165,18 @@
                         )}
 
                         {view === 'iscrizione' && (
-                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem] shadow-2xl mt-10 border border-stone-200 text-center">
-                                {isRegistered ? <p className="font-bold text-green-600">Registrazione confermata ✓</p> : (
-                                    <form onSubmit={handleIscrizione} className="space-y-4">
-                                        <h2 className="text-2xl font-serif mb-2">Registro Portatori</h2>
-                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-100 rounded-xl outline-none" />
-                                        <button type="submit" className="w-full bg-stone-950 text-amber-500 py-4 rounded-xl font-black uppercase tracking-widest shadow-xl">Conferma</button>
+                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem] shadow-2xl mt-10">
+                                {isRegistered ? <p className="text-center font-bold text-green-600">Sei già iscritto! ✓</p> : (
+                                    <form onSubmit={async (e) => {
+                                        e.preventDefault();
+                                        await window.fb.addDoc(window.fb.collection(window.fb.db, 'artifacts', window.fb.appPath, 'public', 'data', 'participants'), {
+                                            nomeCognome: e.target.nome.value, userId: user.uid, timestamp: Date.now()
+                                        });
+                                        setView('home');
+                                    }} className="space-y-4">
+                                        <h2 className="text-2xl font-serif text-center">Registro Portatori</h2>
+                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-100 rounded-xl" />
+                                        <button type="submit" className="w-full bg-stone-950 text-amber-500 py-4 rounded-xl font-black uppercase tracking-widest shadow-xl">Iscriviti</button>
                                     </form>
                                 )}
                             </div>
@@ -173,8 +184,8 @@
 
                         {view === 'galleria' && (
                             <div className="space-y-8">
-                                <h2 className="text-3xl font-serif text-center">Galleria Portatori</h2>
-                                {isRegistered && (
+                                <h2 className="text-3xl font-serif text-center">Galleria Foto</h2>
+                                {(isRegistered || isAdmin) && (
                                     <div className="bg-white p-6 rounded-3xl border-2 border-dashed border-amber-200 text-center max-w-sm mx-auto shadow-sm">
                                         <input type="file" multiple accept="image/*" onChange={handleUpload} className="hidden" id="file-upload" />
                                         <label htmlFor="file-upload" className="cursor-pointer text-amber-800 font-bold uppercase text-[10px] tracking-widest">
@@ -184,15 +195,10 @@
                                 )}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     {gallery.map(img => (
-                                        <div key={img.id} onClick={() => setSelectedImg(img.url)} className="relative aspect-square rounded-2xl overflow-hidden shadow-lg bg-stone-200 border-2 border-white cursor-pointer group">
-                                            <img src={img.url} className="w-full h-full object-cover" loading="lazy" />
-                                            {user && img.userId === user.uid && (
-                                                <button 
-                                                    onClick={(e) => deleteImage(e, img.id)}
-                                                    className="absolute top-2 right-2 bg-red-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                                                >
-                                                    &times;
-                                                </button>
+                                        <div key={img.id} className="relative aspect-square rounded-2xl overflow-hidden shadow-lg border-2 border-white group">
+                                            <img src={img.url} onClick={() => setSelectedImg(img.url)} className="w-full h-full object-cover cursor-pointer" />
+                                            {(isAdmin || (user && img.userId === user.uid)) && (
+                                                <button onClick={() => deleteItem('gallery', img.id)} className="absolute top-2 right-2 bg-red-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
                                             )}
                                         </div>
                                     ))}
@@ -204,7 +210,7 @@
                     {selectedImg && (
                         <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4" onClick={() => setSelectedImg(null)}>
                             <button className="absolute top-6 right-6 text-white text-4xl">&times;</button>
-                            <img src={selectedImg} className="max-w-full max-h-full object-contain rounded-lg animate-zoom" />
+                            <img src={selectedImg} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
                         </div>
                     )}
                 </div>
