@@ -37,6 +37,8 @@
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;700&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f5f5f4; }
         .font-serif { font-family: 'Playfair Display', serif; }
+        .animate-zoom { animation: zoom 0.3s ease-out; }
+        @keyframes zoom { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #d97706; border-radius: 10px; }
     </style>
@@ -54,6 +56,7 @@
             const [gallery, setGallery] = useState([]);
             const [isRegistered, setIsRegistered] = useState(false);
             const [loading, setLoading] = useState(false);
+            const [selectedImg, setSelectedImg] = useState(null);
             const [mainImage, setMainImage] = useState("https://www.processione.savona.it/images/casse/18.jpg");
 
             useEffect(() => {
@@ -71,24 +74,16 @@
 
             const loadData = async (uid) => {
                 const { db, collection, onSnapshot, query, orderBy, doc, getDoc, appPath } = window.fb;
-                
-                // Carica Immagine Principale personalizzata (se esiste nel DB)
                 const cassaDoc = await getDoc(doc(db, 'artifacts', appPath, 'public', 'data', 'settings', 'cassa'));
-                if (cassaDoc.exists() && cassaDoc.data().url) {
-                    setMainImage(cassaDoc.data().url);
-                }
+                if (cassaDoc.exists() && cassaDoc.data().url) setMainImage(cassaDoc.data().url);
 
-                // Carica Partecipanti
-                const pRef = collection(db, 'artifacts', appPath, 'public', 'data', 'participants');
-                onSnapshot(pRef, (s) => {
+                onSnapshot(collection(db, 'artifacts', appPath, 'public', 'data', 'participants'), (s) => {
                     const list = s.docs.map(d => d.data());
                     setParticipants(list);
                     setIsRegistered(list.some(p => p.userId === uid));
                 });
 
-                // Carica Galleria
-                const gRef = query(collection(db, 'artifacts', appPath, 'public', 'data', 'gallery'), orderBy('timestamp', 'desc'));
-                onSnapshot(gRef, (s) => {
+                onSnapshot(query(collection(db, 'artifacts', appPath, 'public', 'data', 'gallery'), orderBy('timestamp', 'desc')), (s) => {
                     setGallery(s.docs.map(d => ({id: d.id, ...d.data()})));
                 });
             };
@@ -140,47 +135,32 @@
                         {view === 'home' && (
                             <div className="space-y-6">
                                 <div className="relative h-64 md:h-96 rounded-[2rem] overflow-hidden shadow-2xl bg-stone-800">
-                                    <img 
-                                        src={mainImage} 
-                                        className="w-full h-full object-cover" 
-                                        onError={(e) => e.target.src = "https://www.processione.savona.it/images/casse/18.jpg"}
-                                    />
+                                    <img src={mainImage} className="w-full h-full object-cover" onError={(e) => e.target.src = "https://www.processione.savona.it/images/casse/18.jpg"} />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 p-8 flex flex-col justify-end">
                                         <h2 className="text-3xl font-serif text-white uppercase">L'Orazione nell'orto</h2>
                                         <p className="text-amber-500 font-bold uppercase text-xs tracking-widest italic">Cassa dei Vigili del Fuoco</p>
                                     </div>
                                 </div>
-                                
                                 <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl border-t-4 border-red-700">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <h3 className="text-amber-500 font-serif text-xl uppercase tracking-tighter">Squadra Portatori</h3>
-                                        <span className="bg-amber-600 text-black px-3 py-1 rounded-full text-[10px] font-black uppercase">{participants.length} Iscritti</span>
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                                        {participants.length > 0 ? participants.map((p, i) => (
+                                    <h3 className="text-amber-500 font-serif text-xl uppercase tracking-tighter mb-4">Squadra Portatori ({participants.length})</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 max-h-48 overflow-y-auto custom-scrollbar">
+                                        {participants.map((p, i) => (
                                             <div key={i} className="text-xs py-2 border-b border-stone-800 text-stone-300 italic flex items-center gap-2">
                                                 <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> {p.nomeCognome}
                                             </div>
-                                        )) : <p className="text-stone-500 text-xs italic">Nessun portatore ancora iscritto.</p>}
+                                        ))}
                                     </div>
                                 </div>
                             </div>
                         )}
 
                         {view === 'iscrizione' && (
-                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem] shadow-2xl mt-10 border border-stone-200">
-                                {isRegistered ? (
-                                    <div className="text-center">
-                                        <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-2xl">✓</div>
-                                        <p className="font-bold text-stone-800 mb-6">Sei registrato nel registro portatori.</p>
-                                        <button onClick={() => setView('home')} className="w-full bg-stone-950 text-amber-500 py-3 rounded-xl font-bold uppercase text-xs tracking-widest">Torna alla Home</button>
-                                    </div>
-                                ) : (
-                                    <form onSubmit={handleIscrizione} className="space-y-4 text-center">
+                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem] shadow-2xl mt-10 border border-stone-200 text-center">
+                                {isRegistered ? <p className="font-bold text-green-600">Sei già registrato!</p> : (
+                                    <form onSubmit={handleIscrizione} className="space-y-4">
                                         <h2 className="text-2xl font-serif mb-2">Registro Portatori</h2>
-                                        <p className="text-[10px] text-stone-400 uppercase font-bold tracking-widest mb-4">Solo personale Vigili del Fuoco</p>
-                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-100 rounded-xl outline-none border-2 border-transparent focus:border-amber-500 text-stone-800" />
-                                        <button type="submit" className="w-full bg-stone-950 text-amber-500 py-4 rounded-xl font-black uppercase tracking-widest shadow-xl">Conferma Iscrizione</button>
+                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-100 rounded-xl outline-none" />
+                                        <button type="submit" className="w-full bg-stone-950 text-amber-500 py-4 rounded-xl font-black uppercase tracking-widest shadow-xl">Iscriviti</button>
                                     </form>
                                 )}
                             </div>
@@ -188,25 +168,18 @@
 
                         {view === 'galleria' && (
                             <div className="space-y-8">
-                                <div className="text-center">
-                                    <h2 className="text-3xl font-serif">Galleria Portatori</h2>
-                                    <p className="text-[10px] text-stone-400 uppercase font-bold tracking-widest">Foto ufficiali e della squadra</p>
-                                </div>
-                                {isRegistered ? (
+                                <h2 className="text-3xl font-serif text-center">Galleria Portatori</h2>
+                                {isRegistered && (
                                     <div className="bg-white p-6 rounded-3xl border-2 border-dashed border-amber-200 text-center max-w-sm mx-auto shadow-sm">
                                         <input type="file" multiple accept="image/*" onChange={handleUpload} className="hidden" id="file-upload" />
                                         <label htmlFor="file-upload" className="cursor-pointer text-amber-800 font-bold uppercase text-[10px] tracking-widest">
-                                            {loading ? 'Caricamento in corso...' : '📸 Clicca per caricare foto'}
+                                            {loading ? 'Caricamento...' : '📸 Carica Foto'}
                                         </label>
-                                    </div>
-                                ) : (
-                                    <div className="bg-amber-50 p-6 rounded-2xl text-amber-800 text-xs text-center border border-amber-100 italic">
-                                        Iscriviti per poter caricare e visualizzare le foto della squadra.
                                     </div>
                                 )}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     {gallery.map(img => (
-                                        <div key={img.id} className="aspect-square rounded-2xl overflow-hidden shadow-lg bg-stone-200 border-2 border-white">
+                                        <div key={img.id} onClick={() => setSelectedImg(img.url)} className="aspect-square rounded-2xl overflow-hidden shadow-lg bg-stone-200 border-2 border-white cursor-pointer hover:opacity-90 transition-opacity">
                                             <img src={img.url} className="w-full h-full object-cover" loading="lazy" />
                                         </div>
                                     ))}
@@ -214,9 +187,14 @@
                             </div>
                         )}
                     </main>
-                    <footer className="p-8 text-center">
-                         <p className="text-stone-400 text-[8px] uppercase font-bold tracking-[0.3em]">Venerdì Santo Savona • VVF</p>
-                    </footer>
+
+                    {/* MODALE PER INGRANDIRE LE FOTO */}
+                    {selectedImg && (
+                        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4" onClick={() => setSelectedImg(null)}>
+                            <button className="absolute top-6 right-6 text-white text-4xl font-light">&times;</button>
+                            <img src={selectedImg} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-zoom" />
+                        </div>
+                    )}
                 </div>
             );
         }
