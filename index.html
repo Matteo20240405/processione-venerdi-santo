@@ -52,7 +52,7 @@
             const [gallery, setGallery] = useState([]);
             const [isRegistered, setIsRegistered] = useState(false);
             const [loading, setLoading] = useState(false);
-            const [selectedImg, setSelectedImg] = useState(null);
+            const [selectedMedia, setSelectedMedia] = useState(null);
             const [mainImage, setMainImage] = useState("https://www.processione.savona.it/images/casse/18.jpg");
             const [isAdmin, setIsAdmin] = useState(false);
 
@@ -71,45 +71,17 @@
 
             const loadData = async (uid) => {
                 const { db, collection, onSnapshot, query, orderBy, doc, appPath } = window.fb;
-                
-                // Immagine Home
                 onSnapshot(doc(db, 'artifacts', appPath, 'public', 'data', 'settings', 'cassa'), (d) => {
                     if (d.exists() && d.data().url) setMainImage(d.data().url);
                 });
-
-                // Portatori
                 onSnapshot(collection(db, 'artifacts', appPath, 'public', 'data', 'participants'), (s) => {
                     const list = s.docs.map(d => ({id: d.id, ...d.data()}));
                     setParticipants(list);
                     setIsRegistered(list.some(p => p.userId === uid));
                 });
-
-                // Galleria
                 onSnapshot(query(collection(db, 'artifacts', appPath, 'public', 'data', 'gallery'), orderBy('timestamp', 'desc')), (s) => {
                     setGallery(s.docs.map(d => ({id: d.id, ...d.data()})));
                 });
-            };
-
-            const toggleAdmin = () => {
-                if (isAdmin) { setIsAdmin(false); setView('home'); } 
-                else {
-                    const pass = prompt("Inserisci Password Admin:");
-                    if (pass === "115") setIsAdmin(true);
-                    else alert("Password errata");
-                }
-            };
-
-            const changeMainImage = async () => {
-                const url = prompt("Incolla il link della nuova immagine per la Home:", mainImage);
-                if (!url) return;
-                const { db, doc, setDoc, appPath } = window.fb;
-                await setDoc(doc(db, 'artifacts', appPath, 'public', 'data', 'settings', 'cassa'), { url });
-            };
-
-            const deleteItem = async (col, id) => {
-                if (!confirm("Confermi l'eliminazione?")) return;
-                const { db, doc, deleteDoc, appPath } = window.fb;
-                await deleteDoc(doc(db, 'artifacts', appPath, 'public', 'data', col, id));
             };
 
             const handleUpload = async (e) => {
@@ -117,11 +89,19 @@
                 setLoading(true);
                 const { db, collection, addDoc, appPath } = window.fb;
                 for (let file of files) {
+                    if (file.size > 20 * 1024 * 1024) {
+                        alert(`Il file ${file.name} è troppo grande (max 20MB)`);
+                        continue;
+                    }
+                    const isVideo = file.type.startsWith('video/');
                     const reader = new FileReader();
                     reader.readAsDataURL(file);
                     reader.onload = async (ev) => {
                         await addDoc(collection(db, 'artifacts', appPath, 'public', 'data', 'gallery'), {
-                            url: ev.target.result, userId: user.uid, timestamp: Date.now()
+                            url: ev.target.result,
+                            type: isVideo ? 'video' : 'image',
+                            userId: user.uid,
+                            timestamp: Date.now()
                         });
                     };
                 }
@@ -130,13 +110,16 @@
 
             return (
                 <div className="min-h-screen flex flex-col">
-                    <nav className="bg-stone-950 text-white p-4 shadow-xl sticky top-0 z-50 border-b border-amber-900/50 flex justify-between items-center">
+                    <nav className="bg-stone-950 text-white p-4 shadow-xl sticky top-0 z-50 flex justify-between items-center border-b border-amber-900/50">
                         <h1 className="text-lg font-serif font-bold text-amber-500">VVF Savona</h1>
                         <div className="flex gap-4 text-[10px] font-bold uppercase tracking-widest">
                             <button onClick={() => setView('home')}>Home</button>
                             <button onClick={() => setView('iscrizione')}>Iscrizione</button>
                             <button onClick={() => setView('galleria')}>Galleria</button>
-                            <button onClick={toggleAdmin} className={isAdmin ? "text-red-500" : "text-stone-500"}>{isAdmin ? 'Esci' : 'Admin'}</button>
+                            <button onClick={() => {
+                                if (isAdmin) setIsAdmin(false);
+                                else if (prompt("Password Admin:") === "115") setIsAdmin(true);
+                            }} className={isAdmin ? "text-red-500" : "text-stone-500"}>Admin</button>
                         </div>
                     </nav>
 
@@ -145,18 +128,18 @@
                             <div className="space-y-6">
                                 <div className="relative h-64 md:h-96 rounded-[2rem] overflow-hidden shadow-2xl">
                                     <img src={mainImage} className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 p-8 flex flex-col justify-end">
-                                        <h2 className="text-3xl font-serif text-white uppercase">L'Orazione nell'orto</h2>
-                                        {isAdmin && <button onClick={changeMainImage} className="text-[10px] bg-white/20 text-white p-2 rounded mt-2 uppercase">Cambia Foto Home</button>}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 p-8 flex flex-col justify-end text-white">
+                                        <h2 className="text-3xl font-serif uppercase">L'Orazione nell'orto</h2>
+                                        <p className="text-amber-500 font-bold uppercase text-[10px] tracking-widest">Squadra Vigili del Fuoco</p>
                                     </div>
                                 </div>
                                 <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl border-t-4 border-red-700">
-                                    <h3 className="text-amber-500 font-serif text-xl mb-4 uppercase tracking-tighter">Squadra Portatori ({participants.length})</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto custom-scrollbar">
+                                    <h3 className="text-amber-500 font-serif text-xl mb-4 uppercase">Portatori ({participants.length})</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto custom-scrollbar italic text-xs text-stone-300">
                                         {participants.map((p) => (
-                                            <div key={p.id} className="text-xs py-2 border-b border-stone-800 text-stone-300 flex justify-between items-center italic">
+                                            <div key={p.id} className="py-2 border-b border-stone-800 flex justify-between items-center uppercase tracking-tighter">
                                                 <span>• {p.nomeCognome}</span>
-                                                {isAdmin && <button onClick={() => deleteItem('participants', p.id)} className="text-red-500 font-bold ml-2 underline">Elimina</button>}
+                                                {isAdmin && <button onClick={async () => { if(confirm("Eliminare?")) await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'artifacts', window.fb.appPath, 'public', 'data', 'participants', p.id)) }} className="text-red-500 underline ml-2">Elimina</button>}
                                             </div>
                                         ))}
                                     </div>
@@ -164,41 +147,28 @@
                             </div>
                         )}
 
-                        {view === 'iscrizione' && (
-                            <div className="max-w-md mx-auto bg-white p-8 rounded-[2rem] shadow-2xl mt-10">
-                                {isRegistered ? <p className="text-center font-bold text-green-600">Sei già iscritto! ✓</p> : (
-                                    <form onSubmit={async (e) => {
-                                        e.preventDefault();
-                                        await window.fb.addDoc(window.fb.collection(window.fb.db, 'artifacts', window.fb.appPath, 'public', 'data', 'participants'), {
-                                            nomeCognome: e.target.nome.value, userId: user.uid, timestamp: Date.now()
-                                        });
-                                        setView('home');
-                                    }} className="space-y-4">
-                                        <h2 className="text-2xl font-serif text-center">Registro Portatori</h2>
-                                        <input name="nome" type="text" placeholder="Nome e Cognome" required className="w-full p-4 bg-stone-100 rounded-xl" />
-                                        <button type="submit" className="w-full bg-stone-950 text-amber-500 py-4 rounded-xl font-black uppercase tracking-widest shadow-xl">Iscriviti</button>
-                                    </form>
-                                )}
-                            </div>
-                        )}
-
                         {view === 'galleria' && (
                             <div className="space-y-8">
-                                <h2 className="text-3xl font-serif text-center">Galleria Foto</h2>
+                                <h2 className="text-3xl font-serif text-center">Galleria Portatori</h2>
                                 {(isRegistered || isAdmin) && (
                                     <div className="bg-white p-6 rounded-3xl border-2 border-dashed border-amber-200 text-center max-w-sm mx-auto shadow-sm">
-                                        <input type="file" multiple accept="image/*" onChange={handleUpload} className="hidden" id="file-upload" />
+                                        <input type="file" multiple accept="image/*,video/*" onChange={handleUpload} className="hidden" id="file-upload" />
                                         <label htmlFor="file-upload" className="cursor-pointer text-amber-800 font-bold uppercase text-[10px] tracking-widest">
-                                            {loading ? 'Caricamento...' : '📸 Aggiungi Foto'}
+                                            {loading ? 'Caricamento...' : '📸 Aggiungi Foto o Video'}
                                         </label>
                                     </div>
                                 )}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    {gallery.map(img => (
-                                        <div key={img.id} className="relative aspect-square rounded-2xl overflow-hidden shadow-lg border-2 border-white group">
-                                            <img src={img.url} onClick={() => setSelectedImg(img.url)} className="w-full h-full object-cover cursor-pointer" />
-                                            {(isAdmin || (user && img.userId === user.uid)) && (
-                                                <button onClick={() => deleteItem('gallery', img.id)} className="absolute top-2 right-2 bg-red-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+                                    {gallery.map(item => (
+                                        <div key={item.id} className="relative aspect-square rounded-2xl overflow-hidden shadow-lg border-2 border-white group bg-black">
+                                            {item.type === 'video' ? (
+                                                <video src={item.url} onClick={() => setSelectedMedia(item)} className="w-full h-full object-cover opacity-80" />
+                                            ) : (
+                                                <img src={item.url} onClick={() => setSelectedMedia(item)} className="w-full h-full object-cover" />
+                                            )}
+                                            {item.type === 'video' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-white text-2xl">▶</div>}
+                                            {(isAdmin || (user && item.userId === user.uid)) && (
+                                                <button onClick={async (e) => { e.stopPropagation(); if(confirm("Eliminare?")) await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'artifacts', window.fb.appPath, 'public', 'data', 'gallery', item.id)) }} className="absolute top-2 right-2 bg-red-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
                                             )}
                                         </div>
                                     ))}
@@ -207,10 +177,14 @@
                         )}
                     </main>
 
-                    {selectedImg && (
-                        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4" onClick={() => setSelectedImg(null)}>
+                    {selectedMedia && (
+                        <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center p-4" onClick={() => setSelectedMedia(null)}>
                             <button className="absolute top-6 right-6 text-white text-4xl">&times;</button>
-                            <img src={selectedImg} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
+                            {selectedMedia.type === 'video' ? (
+                                <video src={selectedMedia.url} controls autoPlay className="max-w-full max-h-full rounded-lg" onClick={(e) => e.stopPropagation()} />
+                            ) : (
+                                <img src={selectedMedia.url} className="max-w-full max-h-full object-contain rounded-lg" />
+                            )}
                         </div>
                     )}
                 </div>
